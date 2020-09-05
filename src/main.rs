@@ -1,7 +1,11 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt;
 use urlencoding::encode;
+
+#[macro_use(row)]
+extern crate tabular;
 
 #[derive(Debug, Serialize, Deserialize)]
 struct GameResult {
@@ -19,8 +23,19 @@ struct Link {
 #[derive(Debug, Deserialize)]
 struct RecordCategory {
     game: String,
+    weblink: String,
     category: String,
     runs: Vec<RunObj>,
+}
+
+impl fmt::Display for RecordCategory {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut table = tabular::Table::new("{:<}  {:<}  {:<}");
+        for run in &self.runs {
+            table.add_row(row!(&run.place, &run.run.video, &run.run.time));
+        }
+        write!(f, "{}\n{}", self.weblink, table)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -99,7 +114,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let game: GameResult = serde_json::from_str(&resp["data"][0].to_string())?;
 
-    println!("Game: {:?}", game);
     println!(
         "Records URL: {}",
         &game
@@ -125,7 +139,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let records: Vec<RecordCategory> = serde_json::from_str(&records_resp["data"].to_string())?;
 
-    dbg!(records);
+    for category in &records {
+        println!("{}", category);
+    }
 
     Ok(())
 }
