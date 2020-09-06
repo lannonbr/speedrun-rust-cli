@@ -32,9 +32,26 @@ impl fmt::Display for RecordCategory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut table = tabular::Table::new("{:<}  {:<}  {:<}");
         for run in &self.runs {
-            table.add_row(row!(&run.place, &run.run.video, &run.run.time));
+            let time: String = {
+                if let iso8601::Duration::YMDHMS {
+                    year: _,
+                    month: _,
+                    day: _,
+                    hour,
+                    minute,
+                    second,
+                    millisecond,
+                } = run.run.time
+                {
+                    format!("{:02}:{:02}:{:02}:{:02}", hour, minute, second, millisecond)
+                } else {
+                    "No time provided".to_string()
+                }
+            };
+
+            table.add_row(row!(&run.place, &run.run.video, time));
         }
-        write!(f, "{}\n{}", self.weblink, table)
+        write!(f, "{}", table)
     }
 }
 
@@ -48,7 +65,7 @@ struct RunObj {
 struct Run {
     weblink: String,
     video: String,
-    time: String,
+    time: iso8601::Duration,
     submitted: String,
 }
 
@@ -83,21 +100,53 @@ impl<'de> Deserialize<'de> for Run {
 
         let help = _Run::deserialize(deserializer)?;
 
+        let videos = help
+            .videos
+            .links
+            .iter()
+            .map(|link| link.uri.clone())
+            .collect::<Vec<String>>();
+
+        let video = if videos.len() == 2 {
+            videos[1].to_owned()
+        } else {
+            videos[0].to_owned()
+        };
+
+        let time = {
+            match iso8601::duration(&help.times.realtime) {
+                Ok(date) => date,
+                Err(err) => {
+                    panic!("Error parsing duration {:#?}", err);
+                }
+            }
+        };
+
         Ok(Run {
             weblink: help.weblink,
-            video: help
-                .videos
-                .links
-                .iter()
-                .map(|link| link.uri.clone())
-                .collect::<Vec<String>>()
-                .first()
-                .cloned()
-                .unwrap(),
-            time: help.times.realtime,
+            video,
+            time,
             submitted: help.submitted,
         })
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct CategoryObj {
+    id: String,
+    name: String,
+    r#type: String,
+}
+
+async fn get_categories(uri: &str) -> Result<Vec<CategoryObj>, Box<dyn std::error::Error>> {
+    let categories_resp = reqwest::get(uri)
+        .await?
+        .json::<HashMap<String, Value>>()
+        .await?;
+
+    let categories: Vec<CategoryObj> = serde_json::from_str(&categories_resp["data"].to_string())?;
+
+    Ok(categories)
 }
 
 #[tokio::main]
@@ -114,21 +163,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let game: GameResult = serde_json::from_str(&resp["data"][0].to_string())?;
 
-    println!(
-        "Records URL: {}",
-        &game
-            .links
-            .clone()
-            .into_iter()
-            .find(|link| link.rel == "records")
-            .unwrap()
-            .uri
-    );
-
     let records_resp = reqwest::get(
         &game
             .links
-            .into_iter()
+            .iter()
             .find(|link| link.rel == "records")
             .unwrap()
             .uri,
@@ -137,7 +175,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .json::<HashMap<String, Value>>()
     .await?;
 
-    let records: Vec<RecordCategory> = serde_json::from_str(&records_resp["data"].to_string())?;
+    let category_endpoint_uri: String = game
+        .links
+        .iter()
+        .find(|link| link.rel == "categories")
+        .unwrap()
+        .uri
+        .clone();
+
+    let mut categories: Vec<CategoryObj> = get_categories(&category_endpoint_uri).await?;
+    categories.retain(|cat| cat.r#type == "per-game");
+
+    let category_ids: Vec<String> = categories.iter().map(|cat| cat.id.clone()).collect();
+
+    let mut records: Vec<RecordCategory> = serde_json::from_str(&records_resp["data"].to_string())?;
+    records.retain(|record| category_ids.contains(&record.category));
 
     for category in &records {
         println!("{}", category);
