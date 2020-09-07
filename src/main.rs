@@ -42,7 +42,8 @@ struct RecordCategory {
 
 impl fmt::Display for RecordCategory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut table = tabular::Table::new("{:<}  {:<}  {:<}");
+        let mut table = tabular::Table::new("{:<}  {:<}  {:<}  {:<}  {:<}");
+        table.add_row(row!("Place", "Run ID", "Player ID", "Run Video", "Time"));
         for run in &self.runs {
             let time: String = {
                 if let iso8601::Duration::YMDHMS {
@@ -61,7 +62,9 @@ impl fmt::Display for RecordCategory {
                 }
             };
 
-            table.add_row(row!(&run.place, &run.run.video, time));
+            let player = &run.run.player_refs.first().unwrap().id;
+
+            table.add_row(row!(&run.place, &run.run.id, player, &run.run.video, time));
         }
         write!(f, "{}", table)
     }
@@ -84,10 +87,19 @@ struct RunObj {
 
 #[derive(Debug)]
 struct Run {
+    id: String,
     weblink: String,
     video: String,
     time: iso8601::Duration,
     submitted: String,
+    player_refs: Vec<PlayerRef>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PlayerRef {
+    rel: String,
+    id: String,
+    uri: String,
 }
 
 // Figured out how to deserialize & flatten deeply nested JSON from Stack Overflow Answer: https://stackoverflow.com/a/48978402
@@ -98,10 +110,12 @@ impl<'de> Deserialize<'de> for Run {
     {
         #[derive(Deserialize)]
         struct _Run {
+            id: String,
             weblink: String,
             videos: Vids,
             times: Times,
             submitted: String,
+            players: Vec<PlayerRef>,
         }
 
         #[derive(Deserialize)]
@@ -144,10 +158,12 @@ impl<'de> Deserialize<'de> for Run {
         };
 
         Ok(Run {
+            id: help.id,
             weblink: help.weblink,
             video,
             time,
             submitted: help.submitted,
+            player_refs: help.players,
         })
     }
 }
@@ -185,9 +201,35 @@ async fn get_categories(
     Ok(hash)
 }
 
+#[derive(Debug, Deserialize)]
+struct Player {
+    id: String,
+    names: Names,
+}
+
+#[derive(Debug, Deserialize)]
+struct Names {
+    international: Value,
+    japanese: Value,
+}
+
+async fn get_player(uri: &str) -> Result<Player, Box<dyn std::error::Error>> {
+    let player_resp = reqwest::get(uri)
+        .await?
+        .json::<HashMap<String, Value>>()
+        .await?;
+
+    let player: Player = serde_json::from_str(&player_resp["data"].to_string())?;
+    Ok(player)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let game_title = "super mario odyssey";
+
+    let player = get_player("https://speedrun.com/api/v1/users/0jm34we8").await?;
+
+    dbg!(player);
 
     let game = get_game_result(game_title).await?;
 
@@ -215,7 +257,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         cat.r#type == "per-game"
     });
 
-    for category in &records {
+    println!("Runs for {}\n", game_title);
+    for category in records {
+        let cat_name = &categories.get(&category.category).unwrap().name;
+        println!("Category: {}", cat_name);
         println!("{}", category);
     }
 
