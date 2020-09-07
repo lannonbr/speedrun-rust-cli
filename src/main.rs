@@ -159,7 +159,9 @@ struct CategoryObj {
     r#type: String,
 }
 
-async fn get_categories(uri: &str) -> Result<Vec<CategoryObj>, Box<dyn std::error::Error>> {
+async fn get_categories(
+    uri: &str,
+) -> Result<HashMap<String, CategoryObj>, Box<dyn std::error::Error>> {
     let categories_resp = reqwest::get(uri)
         .await?
         .json::<HashMap<String, Value>>()
@@ -167,7 +169,20 @@ async fn get_categories(uri: &str) -> Result<Vec<CategoryObj>, Box<dyn std::erro
 
     let categories: Vec<CategoryObj> = serde_json::from_str(&categories_resp["data"].to_string())?;
 
-    Ok(categories)
+    let mut hash = HashMap::new();
+
+    for cat in categories {
+        hash.insert(
+            cat.id.clone(),
+            CategoryObj {
+                id: cat.id.clone(),
+                name: cat.name,
+                r#type: cat.r#type,
+            },
+        );
+    }
+
+    Ok(hash)
 }
 
 #[tokio::main]
@@ -192,13 +207,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .uri
         .clone();
 
-    let mut categories: Vec<CategoryObj> = get_categories(&category_endpoint_uri).await?;
-    categories.retain(|cat| cat.r#type == "per-game");
-
-    let category_ids: Vec<String> = categories.iter().map(|cat| cat.id.clone()).collect();
+    let categories = get_categories(&category_endpoint_uri).await?;
 
     let mut records: Vec<RecordCategory> = get_game_records(&records_endpoint_uri).await?;
-    records.retain(|record| category_ids.contains(&record.category));
+    records.retain(|record| {
+        let cat = &categories.get(&record.category).unwrap();
+        cat.r#type == "per-game"
+    });
 
     for category in &records {
         println!("{}", category);
