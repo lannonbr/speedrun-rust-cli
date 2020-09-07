@@ -20,6 +20,18 @@ struct Link {
     uri: String,
 }
 
+async fn get_game_result(game_title: &str) -> Result<GameResult, Box<dyn std::error::Error>> {
+    let resp = reqwest::get(&format!(
+        "https://speedrun.com/api/v1/games?name={}",
+        encode(game_title)
+    ))
+    .await?
+    .json::<HashMap<String, Value>>()
+    .await?;
+
+    Ok(serde_json::from_str(&resp["data"][0].to_string())?)
+}
+
 #[derive(Debug, Deserialize)]
 struct RecordCategory {
     game: String,
@@ -53,6 +65,15 @@ impl fmt::Display for RecordCategory {
         }
         write!(f, "{}", table)
     }
+}
+
+async fn get_game_records(uri: &str) -> Result<Vec<RecordCategory>, Box<dyn std::error::Error>> {
+    let records_resp = reqwest::get(uri)
+        .await?
+        .json::<HashMap<String, Value>>()
+        .await?;
+
+    Ok(serde_json::from_str(&records_resp["data"].to_string())?)
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,27 +174,15 @@ async fn get_categories(uri: &str) -> Result<Vec<CategoryObj>, Box<dyn std::erro
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let game_title = "super mario odyssey";
 
-    let resp = reqwest::get(&format!(
-        "https://speedrun.com/api/v1/games?name={}",
-        encode(game_title)
-    ))
-    .await?
-    .json::<HashMap<String, Value>>()
-    .await?;
+    let game = get_game_result(game_title).await?;
 
-    let game: GameResult = serde_json::from_str(&resp["data"][0].to_string())?;
-
-    let records_resp = reqwest::get(
-        &game
-            .links
-            .iter()
-            .find(|link| link.rel == "records")
-            .unwrap()
-            .uri,
-    )
-    .await?
-    .json::<HashMap<String, Value>>()
-    .await?;
+    let records_endpoint_uri: String = game
+        .links
+        .iter()
+        .find(|link| link.rel == "records")
+        .unwrap()
+        .uri
+        .clone();
 
     let category_endpoint_uri: String = game
         .links
@@ -188,7 +197,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let category_ids: Vec<String> = categories.iter().map(|cat| cat.id.clone()).collect();
 
-    let mut records: Vec<RecordCategory> = serde_json::from_str(&records_resp["data"].to_string())?;
+    let mut records: Vec<RecordCategory> = get_game_records(&records_endpoint_uri).await?;
     records.retain(|record| category_ids.contains(&record.category));
 
     for category in &records {
