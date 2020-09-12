@@ -2,6 +2,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt;
+use structopt::StructOpt;
 use urlencoding::encode;
 
 #[macro_use(row)]
@@ -223,45 +224,66 @@ async fn get_player(uri: &str) -> Result<Player, Box<dyn std::error::Error>> {
     Ok(player)
 }
 
+#[derive(StructOpt, Debug)]
+#[structopt(name = "speedrun-rust-cli", about = "CLI for exploring speedrun.com")]
+enum Opts {
+    Game {
+        /// Game name
+        #[structopt(short, long)]
+        name: String,
+    },
+    Player {
+        /// Player ID
+        #[structopt(short, long)]
+        id: String,
+
+        #[structopt(short, long)]
+        debug: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let game_title = "super mario odyssey";
+    match Opts::from_args() {
+        Opts::Game { name } => {
+            let game = get_game_result(&name).await?;
 
-    let player = get_player("https://speedrun.com/api/v1/users/0jm34we8").await?;
+            let records_endpoint_uri: String = game
+                .links
+                .iter()
+                .find(|link| link.rel == "records")
+                .unwrap()
+                .uri
+                .clone();
+            let category_endpoint_uri: String = game
+                .links
+                .iter()
+                .find(|link| link.rel == "categories")
+                .unwrap()
+                .uri
+                .clone();
 
-    dbg!(player);
+            let categories = get_categories(&category_endpoint_uri).await?;
+            let mut records: Vec<RecordCategory> = get_game_records(&records_endpoint_uri).await?;
+            records.retain(|record| {
+                let cat = &categories.get(&record.category).unwrap();
+                cat.r#type == "per-game"
+            });
 
-    let game = get_game_result(game_title).await?;
-
-    let records_endpoint_uri: String = game
-        .links
-        .iter()
-        .find(|link| link.rel == "records")
-        .unwrap()
-        .uri
-        .clone();
-
-    let category_endpoint_uri: String = game
-        .links
-        .iter()
-        .find(|link| link.rel == "categories")
-        .unwrap()
-        .uri
-        .clone();
-
-    let categories = get_categories(&category_endpoint_uri).await?;
-
-    let mut records: Vec<RecordCategory> = get_game_records(&records_endpoint_uri).await?;
-    records.retain(|record| {
-        let cat = &categories.get(&record.category).unwrap();
-        cat.r#type == "per-game"
-    });
-
-    println!("Runs for {}\n", game_title);
-    for category in records {
-        let cat_name = &categories.get(&category.category).unwrap().name;
-        println!("Category: {}", cat_name);
-        println!("{}", category);
+            println!("Runs for {}\n", name);
+            for category in records {
+                let cat_name = &categories.get(&category.category).unwrap().name;
+                println!("Category: {}", cat_name);
+                println!("{}", category);
+            }
+        }
+        Opts::Player { id, debug } => {
+            // example player: 0jm34we8
+            let player = get_player(&format!("https://speedrun.com/api/v1/users/{}", id)).await?;
+            if debug {
+                dbg!(player);
+            }
+        }
     }
 
     Ok(())
