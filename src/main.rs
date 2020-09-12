@@ -37,14 +37,14 @@ struct RecordCategory {
     game: String,
     weblink: String,
     category: String,
-    runs: Vec<RunObj>,
+    runs: Vec<Run>,
 }
 
 impl fmt::Display for RecordCategory {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let mut table = tabular::Table::new("{:<}  {:<}  {:<}  {:<}  {:<}");
         table.add_row(row!("Place", "Run ID", "Player ID", "Run Video", "Time"));
-        for run in &self.runs {
+        for (i, run) in self.runs.iter().enumerate() {
             let time: String = {
                 if let iso8601::Duration::YMDHMS {
                     year: _,
@@ -54,7 +54,7 @@ impl fmt::Display for RecordCategory {
                     minute,
                     second,
                     millisecond,
-                } = run.run.time
+                } = run.time
                 {
                     format!("{:02}:{:02}:{:02}:{:02}", hour, minute, second, millisecond)
                 } else {
@@ -62,9 +62,9 @@ impl fmt::Display for RecordCategory {
                 }
             };
 
-            let player = &run.run.player_refs.first().unwrap().id;
+            let player = &run.player_refs.first().unwrap().id;
 
-            table.add_row(row!(&run.place, &run.run.id, player, &run.run.video, time));
+            table.add_row(row!(i, &run.id, player, &run.video, time));
         }
         write!(f, "{}", table)
     }
@@ -77,12 +77,6 @@ async fn get_game_records(uri: &str) -> Result<Vec<RecordCategory>, Box<dyn std:
         .await?;
 
     Ok(serde_json::from_str(&records_resp["data"].to_string())?)
-}
-
-#[derive(Debug, Deserialize)]
-struct RunObj {
-    place: u8,
-    run: Run,
 }
 
 #[derive(Debug)]
@@ -109,6 +103,11 @@ impl<'de> Deserialize<'de> for Run {
         D: Deserializer<'de>,
     {
         #[derive(Deserialize)]
+        struct RunObj {
+            run: _Run,
+        }
+
+        #[derive(Deserialize)]
         struct _Run {
             id: String,
             weblink: String,
@@ -133,9 +132,10 @@ impl<'de> Deserialize<'de> for Run {
             realtime: String,
         }
 
-        let help = _Run::deserialize(deserializer)?;
+        let help = RunObj::deserialize(deserializer)?;
 
         let videos = help
+            .run
             .videos
             .links
             .iter()
@@ -149,7 +149,7 @@ impl<'de> Deserialize<'de> for Run {
         };
 
         let time = {
-            match iso8601::duration(&help.times.realtime) {
+            match iso8601::duration(&help.run.times.realtime) {
                 Ok(date) => date,
                 Err(err) => {
                     panic!("Error parsing duration {:#?}", err);
@@ -158,12 +158,12 @@ impl<'de> Deserialize<'de> for Run {
         };
 
         Ok(Run {
-            id: help.id,
-            weblink: help.weblink,
+            id: help.run.id,
+            weblink: help.run.weblink,
             video,
             time,
-            submitted: help.submitted,
-            player_refs: help.players,
+            submitted: help.run.submitted,
+            player_refs: help.run.players,
         })
     }
 }
