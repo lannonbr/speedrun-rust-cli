@@ -65,7 +65,23 @@ impl fmt::Display for RecordCategory {
                 }
             };
 
-            let player = &run.player_refs.first().unwrap().id;
+            let player: String = if run.player_refs.first().unwrap().rel == "user" {
+                run.player_refs
+                    .first()
+                    .expect("No player ref")
+                    .id
+                    .as_ref()
+                    .unwrap()
+                    .to_string()
+            } else {
+                run.player_refs
+                    .first()
+                    .expect("No player ref")
+                    .name
+                    .as_ref()
+                    .unwrap()
+                    .to_string()
+            };
 
             table.add_row(row!(i, &run.id, player, &run.video, time));
         }
@@ -88,14 +104,14 @@ struct Run {
     weblink: String,
     video: String,
     time: iso8601::Duration,
-    submitted: String,
     player_refs: Vec<PlayerRef>,
 }
 
 #[derive(Debug, Deserialize)]
 struct PlayerRef {
     rel: String,
-    id: String,
+    id: Option<String>,
+    name: Option<String>,
     uri: String,
 }
 
@@ -105,50 +121,54 @@ impl<'de> Deserialize<'de> for Run {
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
+        #[derive(Debug, Deserialize)]
         struct RunObj {
             run: _Run,
         }
 
-        #[derive(Deserialize)]
+        #[derive(Debug, Deserialize)]
         struct _Run {
             id: String,
             weblink: String,
             videos: Vids,
             times: Times,
-            submitted: String,
             players: Vec<PlayerRef>,
         }
 
-        #[derive(Deserialize)]
-        struct Vids {
-            links: Vec<_Links>,
-        }
+        #[derive(Debug, Deserialize)]
+        struct Vids(Value);
 
-        #[derive(Deserialize)]
-        struct _Links {
-            uri: String,
-        }
-
-        #[derive(Deserialize)]
+        #[derive(Debug, Deserialize)]
         struct Times {
             realtime: String,
         }
 
         let help = RunObj::deserialize(deserializer)?;
 
-        let videos = help
-            .run
-            .videos
-            .links
-            .iter()
-            .map(|link| link.uri.clone())
-            .collect::<Vec<String>>();
+        let videos: Vec<String> = if !help.run.videos.0.is_null() {
+            match help.run.videos.0.get("links").unwrap() {
+                Value::Array(arr) => arr
+                    .iter()
+                    .map(|x| {
+                        x.get("uri")
+                            .expect("failed to find uri")
+                            .as_str()
+                            .expect("Failed to convert to string")
+                            .to_string()
+                    })
+                    .collect::<Vec<String>>(),
+                _ => vec![],
+            }
+        } else {
+            vec![]
+        };
 
         let video = if videos.len() == 2 {
             videos[1].to_owned()
-        } else {
+        } else if videos.len() == 1 {
             videos[0].to_owned()
+        } else {
+            String::new()
         };
 
         let time = {
@@ -165,7 +185,6 @@ impl<'de> Deserialize<'de> for Run {
             weblink: help.run.weblink,
             video,
             time,
-            submitted: help.run.submitted,
             player_refs: help.run.players,
         })
     }
