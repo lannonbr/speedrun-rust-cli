@@ -9,6 +9,12 @@ use urlencoding::encode;
 #[macro_use(row)]
 extern crate tabular;
 
+macro_rules! deserialize_with_path {
+    ($expression:expr) => {
+        serde_path_to_error::deserialize(&mut serde_json::Deserializer::from_str($expression))
+    };
+}
+
 #[derive(Debug, Deserialize)]
 struct GameResult {
     abbreviation: String,
@@ -32,7 +38,7 @@ async fn get_game_result(game_title: &str) -> Result<Vec<GameResult>, Box<dyn st
     .json::<HashMap<String, Value>>()
     .await?;
 
-    Ok(serde_json::from_str(&resp["data"].to_string())?)
+    Ok(deserialize_with_path!(&resp["data"].to_string())?)
 }
 
 #[derive(Debug, Deserialize)]
@@ -95,9 +101,7 @@ async fn get_game_records(uri: &str) -> Result<Vec<RecordCategory>, Box<dyn std:
         .json::<HashMap<String, Value>>()
         .await?;
 
-    Ok(serde_path_to_error::deserialize(
-        &mut serde_json::Deserializer::from_str(&records_resp["data"].to_string()),
-    )?)
+    Ok(deserialize_with_path!(&records_resp["data"].to_string())?)
 }
 
 #[derive(Debug)]
@@ -210,7 +214,8 @@ async fn get_categories(
         .json::<HashMap<String, Value>>()
         .await?;
 
-    let categories: Vec<CategoryObj> = serde_json::from_str(&categories_resp["data"].to_string())?;
+    let categories: Vec<CategoryObj> =
+        deserialize_with_path!(&categories_resp["data"].to_string())?;
 
     let mut hash = HashMap::new();
 
@@ -246,7 +251,7 @@ async fn get_player(uri: &str) -> Result<Player, Box<dyn std::error::Error>> {
         .json::<HashMap<String, Value>>()
         .await?;
 
-    let player: Player = serde_json::from_str(&player_resp["data"].to_string())?;
+    let player: Player = deserialize_with_path!(&player_resp["data"].to_string())?;
     Ok(player)
 }
 
