@@ -23,6 +23,26 @@ struct GameResult {
     links: Vec<Link>,
 }
 
+impl GameResult {
+    fn categories(&self) -> String {
+        self.links
+            .iter()
+            .find(|link| link.rel == "categories")
+            .unwrap()
+            .uri
+            .clone()
+    }
+
+    fn records(&self) -> String {
+        self.links
+            .iter()
+            .find(|link| link.rel == "records")
+            .unwrap()
+            .uri
+            .clone()
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 struct Link {
     rel: String,
@@ -298,20 +318,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             let selected_game = &games[game_name];
 
-            let records_endpoint_uri: String = selected_game
-                .links
-                .iter()
-                .find(|link| link.rel == "records")
-                .unwrap()
-                .uri
-                .clone();
-            let category_endpoint_uri: String = selected_game
-                .links
-                .iter()
-                .find(|link| link.rel == "categories")
-                .unwrap()
-                .uri
-                .clone();
+            let records_endpoint_uri: String = selected_game.records();
+            let category_endpoint_uri: String = selected_game.categories();
 
             let categories = get_categories(&category_endpoint_uri).await?;
             let mut records: Vec<RecordCategory> = get_game_records(&records_endpoint_uri).await?;
