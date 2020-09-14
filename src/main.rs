@@ -1,3 +1,4 @@
+use dialoguer::{theme::ColorfulTheme, Select};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -8,9 +9,10 @@ use urlencoding::encode;
 #[macro_use(row)]
 extern crate tabular;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Deserialize)]
 struct GameResult {
     abbreviation: String,
+    names: Names,
     released: u16,
     links: Vec<Link>,
 }
@@ -21,7 +23,7 @@ struct Link {
     uri: String,
 }
 
-async fn get_game_result(game_title: &str) -> Result<GameResult, Box<dyn std::error::Error>> {
+async fn get_game_result(game_title: &str) -> Result<Vec<GameResult>, Box<dyn std::error::Error>> {
     let resp = reqwest::get(&format!(
         "https://speedrun.com/api/v1/games?name={}",
         encode(game_title)
@@ -30,7 +32,7 @@ async fn get_game_result(game_title: &str) -> Result<GameResult, Box<dyn std::er
     .json::<HashMap<String, Value>>()
     .await?;
 
-    Ok(serde_json::from_str(&resp["data"][0].to_string())?)
+    Ok(serde_json::from_str(&resp["data"].to_string())?)
 }
 
 #[derive(Debug, Deserialize)]
@@ -246,16 +248,35 @@ enum Opts {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match Opts::from_args() {
         Opts::Game { name } => {
-            let game = get_game_result(&name).await?;
+            let games = get_game_result(&name).await?;
 
-            let records_endpoint_uri: String = game
+            if games.is_empty() {
+                panic!("No games came back with the search of {}", name)
+            }
+
+            let names = &games
+                .iter()
+                .map(|game| game.names.international.clone())
+                .collect::<Vec<Value>>();
+
+            let game_name = Select::with_theme(&ColorfulTheme::default())
+                .with_prompt("Select a game:")
+                .default(0)
+                .items(&names)
+                .interact()?;
+
+            println!("You selected: {:?}", &games[game_name]);
+
+            let selected_game = &games[game_name];
+
+            let records_endpoint_uri: String = selected_game
                 .links
                 .iter()
                 .find(|link| link.rel == "records")
                 .unwrap()
                 .uri
                 .clone();
-            let category_endpoint_uri: String = game
+            let category_endpoint_uri: String = selected_game
                 .links
                 .iter()
                 .find(|link| link.rel == "categories")
@@ -270,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cat.r#type == "per-game"
             });
 
-            println!("Runs for {}\n", name);
+            println!("Runs for {}\n", selected_game.names.international);
             for category in records {
                 let cat_name = &categories.get(&category.category).unwrap().name;
                 println!("Category: {}", cat_name);
