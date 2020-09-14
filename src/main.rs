@@ -95,7 +95,9 @@ async fn get_game_records(uri: &str) -> Result<Vec<RecordCategory>, Box<dyn std:
         .json::<HashMap<String, Value>>()
         .await?;
 
-    Ok(serde_json::from_str(&records_resp["data"].to_string())?)
+    Ok(serde_path_to_error::deserialize(
+        &mut serde_json::Deserializer::from_str(&records_resp["data"].to_string()),
+    )?)
 }
 
 #[derive(Debug)]
@@ -104,6 +106,7 @@ struct Run {
     weblink: String,
     video: String,
     time: iso8601::Duration,
+    submitted: String,
     player_refs: Vec<PlayerRef>,
 }
 
@@ -132,6 +135,7 @@ impl<'de> Deserialize<'de> for Run {
             weblink: String,
             videos: Vids,
             times: Times,
+            submitted: String,
             players: Vec<PlayerRef>,
         }
 
@@ -185,6 +189,7 @@ impl<'de> Deserialize<'de> for Run {
             weblink: help.run.weblink,
             video,
             time,
+            submitted: help.run.submitted,
             player_refs: help.run.players,
         })
     }
