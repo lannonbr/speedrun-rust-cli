@@ -241,9 +241,9 @@ async fn get_categories(
 
     for cat in categories {
         hash.insert(
-            cat.id.clone(),
+            cat.id.to_owned(),
             CategoryObj {
-                id: cat.id.clone(),
+                id: cat.id.to_owned(),
                 name: cat.name,
                 r#type: cat.r#type,
             },
