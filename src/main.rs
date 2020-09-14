@@ -121,7 +121,12 @@ async fn get_game_records(uri: &str) -> Result<Vec<RecordCategory>, Box<dyn std:
         .json::<HashMap<String, Value>>()
         .await?;
 
-    Ok(deserialize_with_path!(&records_resp["data"].to_string())?)
+    let res = deserialize_with_path!(&records_resp["data"].to_string());
+
+    Ok(match res {
+        Ok(res) => res,
+        Err(e) => panic!("Error: {}\nLocation: {}", e.inner(), e.path()),
+    })
 }
 
 #[derive(Debug)]
